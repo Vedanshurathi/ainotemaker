@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { generateNotes, generateDiagram, generateAudioExplanation, generateQuiz, TopperNotes, NoteStyle, QuizQuestion } from './services/geminiService';
-import { Search, Loader2, Sparkles, Download, ArrowLeft, RefreshCw, Zap, Image as ImageIcon, BookOpen, Layers, Volume2, Square, Headphones, FileQuestion, CheckCircle2, XCircle, ChevronRight, PlayCircle, Bookmark, Trash2, Library as LibraryIcon, Clock } from 'lucide-react';
+import { Search, Loader2, Sparkles, Download, ArrowLeft, RefreshCw, Zap, Image as ImageIcon, BookOpen, Layers, Volume2, Square, Headphones, FileQuestion, CheckCircle2, XCircle, ChevronRight, PlayCircle, Bookmark, Trash2, Library as LibraryIcon, Clock, Star, Send, MessageSquare, Trophy, TrendingUp, Target, BarChart3, Timer, Pause } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'motion/react';
@@ -30,9 +30,69 @@ export default function App() {
 
   const [isDiagramModalOpen, setIsDiagramModalOpen] = useState(false);
 
+  // Timer State
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+
+  // Update timer every second
+  React.useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isTimerRunning) {
+      interval = setInterval(() => {
+        setTimerSeconds(s => s + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isTimerRunning]);
+
+  // Sync timer with library when stopped or notes change
+  const syncTimerWithLibrary = () => {
+    if (!notes || timerSeconds === 0) return;
+    
+    const updated = savedLibrary.map(item => {
+      if (item.notes.title === notes.title) {
+        return { ...item, totalStudiedSeconds: item.totalStudiedSeconds + timerSeconds };
+      }
+      return item;
+    });
+    
+    setSavedLibrary(updated);
+    localStorage.setItem('topper_notes_library', JSON.stringify(updated));
+    setTimerSeconds(0);
+  };
+
+  const toggleTimer = () => {
+    if (isTimerRunning) {
+      syncTimerWithLibrary();
+    }
+    setIsTimerRunning(!isTimerRunning);
+  };
+
+  // Feedback State
+  const [feedbackRating, setFeedbackRating] = useState(0);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [isFeedbackSubmitted, setIsFeedbackSubmitted] = useState(false);
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+
   // Library State
-  const [savedLibrary, setSavedLibrary] = useState<{ id: string; notes: TopperNotes; grade: string; diagramUrl: string | null; date: string }[]>([]);
+  const [savedLibrary, setSavedLibrary] = useState<{ 
+    id: string; 
+    notes: TopperNotes; 
+    grade: string; 
+    diagramUrl: string | null; 
+    date: string;
+    isCompleted: boolean;
+    lastQuizScore?: { score: number; total: number };
+    totalStudiedSeconds: number;
+  }[]>([]);
   const [showLibrary, setShowLibrary] = useState(false);
+  const [showProgress, setShowProgress] = useState(false);
+  const [librarySearch, setLibrarySearch] = useState('');
+
+  const filteredLibrary = savedLibrary.filter(item => 
+    item.notes.title.toLowerCase().includes(librarySearch.toLowerCase()) ||
+    item.notes.content.toLowerCase().includes(librarySearch.toLowerCase())
+  );
 
   React.useEffect(() => {
     const saved = localStorage.getItem('topper_notes_library');
@@ -52,9 +112,22 @@ export default function App() {
       notes,
       grade,
       diagramUrl,
-      date: new Date().toLocaleDateString()
+      date: new Date().toLocaleDateString(),
+      isCompleted: false,
+      totalStudiedSeconds: timerSeconds
     };
     const updated = [newItem, ...savedLibrary];
+    setSavedLibrary(updated);
+    localStorage.setItem('topper_notes_library', JSON.stringify(updated));
+    setTimerSeconds(0); // Reset after saving to library
+  };
+
+  const toggleCompletion = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const updated = savedLibrary.map(item => {
+      if (item.id === id) return { ...item, isCompleted: !item.isCompleted };
+      return item;
+    });
     setSavedLibrary(updated);
     localStorage.setItem('topper_notes_library', JSON.stringify(updated));
   };
@@ -67,6 +140,7 @@ export default function App() {
   };
 
   const loadFromLibrary = (item: any) => {
+    syncTimerWithLibrary();
     setNotes(item.notes);
     setGrade(item.grade);
     setDiagramUrl(item.diagramUrl);
@@ -74,12 +148,32 @@ export default function App() {
     setShowQuiz(false);
     setIsPlaying(false);
     setAudioUrl(null);
+    setTimerSeconds(0);
+    setIsTimerRunning(false);
+    
+    // Reset Feedback
+    setFeedbackRating(0);
+    setFeedbackComment('');
+    setIsFeedbackSubmitted(false);
+  };
+
+  const handleFeedbackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (feedbackRating === 0) return;
+    
+    setIsSubmittingFeedback(true);
+    // Mocking an API call to save feedback
+    setTimeout(() => {
+      setIsFeedbackSubmitted(true);
+      setIsSubmittingFeedback(false);
+    }, 800);
   };
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!topic.trim()) return;
 
+    syncTimerWithLibrary();
     setLoading(true);
     setError(null);
     setNotes(null);
@@ -88,6 +182,13 @@ export default function App() {
     setIsPlaying(false);
     setShowQuiz(false);
     setQuizQuestions([]);
+    setTimerSeconds(0);
+    setIsTimerRunning(false);
+    
+    // Reset Feedback
+    setFeedbackRating(0);
+    setFeedbackComment('');
+    setIsFeedbackSubmitted(false);
 
     try {
       const generatedNotes = await generateNotes(topic, grade, style);
@@ -165,6 +266,20 @@ export default function App() {
       setSelectedOption(null);
     } else {
       setIsQuizFinished(true);
+      // Update score in library if this topic is saved
+      if (notes) {
+        const updated = savedLibrary.map(item => {
+          if (item.notes.title === notes.title) {
+            return {
+              ...item,
+              lastQuizScore: { score: score + (selectedOption === quizQuestions[currentQuestionIndex].correctAnswer ? 1 : 0), total: quizQuestions.length }
+            };
+          }
+          return item;
+        });
+        setSavedLibrary(updated);
+        localStorage.setItem('topper_notes_library', JSON.stringify(updated));
+      }
     }
   };
 
@@ -176,6 +291,7 @@ export default function App() {
   ];
 
   const handleReset = () => {
+    syncTimerWithLibrary();
     setTopic('');
     setNotes(null);
     setDiagramUrl(null);
@@ -199,13 +315,22 @@ export default function App() {
                 School Prep Pro
               </div>
               {savedLibrary.length > 0 && (
-                <button
-                  onClick={() => setShowLibrary(true)}
-                  className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white text-indigo-600 text-[10px] font-bold uppercase tracking-widest border border-indigo-100 shadow-sm hover:bg-slate-50 transition-all"
-                >
-                  <LibraryIcon className="w-3 h-3" />
-                  My Library ({savedLibrary.length})
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowProgress(true)}
+                    className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest border-b-2 border-emerald-800 shadow-sm hover:shadow-md transition-all"
+                  >
+                    <TrendingUp className="w-3 h-3" />
+                    My Progress
+                  </button>
+                  <button
+                    onClick={() => setShowLibrary(true)}
+                    className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white text-indigo-600 text-[10px] font-bold uppercase tracking-widest border border-indigo-100 shadow-sm hover:bg-slate-50 transition-all"
+                  >
+                    <LibraryIcon className="w-3 h-3" />
+                    My Library ({savedLibrary.length})
+                  </button>
+                </div>
               )}
             </div>
             <h1 className="text-5xl md:text-7xl font-extrabold text-slate-800 tracking-tight mb-8 leading-[1.1] relative">
@@ -322,20 +447,43 @@ export default function App() {
               <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight italic">Personal <span className="text-indigo-600">Library</span></h2>
             </div>
 
-            {savedLibrary.length === 0 ? (
+            <div className="mb-8 relative max-w-xl">
+              <input
+                type="text"
+                value={librarySearch}
+                onChange={(e) => setLibrarySearch(e.target.value)}
+                placeholder="Search through your study notes..."
+                className="w-full bg-white border border-slate-200 rounded-2xl py-4 pl-12 pr-4 outline-none focus:border-indigo-500 shadow-sm transition-all text-sm"
+              />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              {librarySearch && (
+                <button 
+                  onClick={() => setLibrarySearch('')}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500"
+                >
+                  <XCircle className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {filteredLibrary.length === 0 ? (
               <div className="text-center py-20 bg-white border-2 border-dashed border-slate-200 rounded-3xl">
                 <LibraryIcon className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                <p className="text-slate-500 font-bold uppercase text-xs tracking-widest">No saved notes yet.</p>
-                <button
-                  onClick={() => setShowLibrary(false)}
-                  className="mt-6 text-indigo-600 font-bold text-sm underline underline-offset-4"
-                >
-                  Start generating to build your library
-                </button>
+                <p className="text-slate-500 font-bold uppercase text-xs tracking-widest">
+                  {librarySearch ? "No matches found for your search." : "No saved notes yet."}
+                </p>
+                {!librarySearch && (
+                  <button
+                    onClick={() => setShowLibrary(false)}
+                    className="mt-6 text-indigo-600 font-bold text-sm underline underline-offset-4"
+                  >
+                    Start generating to build your library
+                  </button>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {savedLibrary.map((item) => (
+                {filteredLibrary.map((item) => (
                   <motion.div
                     layoutId={item.id}
                     key={item.id}
@@ -365,6 +513,184 @@ export default function App() {
                 ))}
               </div>
             )}
+          </motion.div>
+        ) : showProgress ? (
+          <motion.div
+            key="progress"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.05 }}
+            className="max-w-6xl mx-auto px-6 pt-24 pb-20"
+          >
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-16 px-4">
+              <div className="space-y-2">
+                <button 
+                  onClick={() => setShowProgress(false)}
+                  className="flex items-center gap-2 text-slate-500 hover:text-indigo-600 transition-colors font-bold uppercase text-[10px] tracking-widest group mb-4"
+                >
+                  <ArrowLeft className="w-3 h-3 group-hover:-translate-x-1 transition-transform" />
+                  Back
+                </button>
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-indigo-600 rounded-2xl shadow-xl shadow-indigo-100">
+                    <Trophy className="w-8 h-8 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-4xl font-extrabold text-slate-800 tracking-tight leading-none">Learning <span className="text-indigo-600 italic">Dashboard</span></h2>
+                    <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em] mt-2">Class {grade} Academics</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-black text-2xl">
+                    {savedLibrary.filter(i => i.isCompleted).length}
+                  </div>
+                  <div className="pr-4">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mastered</p>
+                    <p className="text-xs font-bold text-slate-700">Topics Done</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
+              {[
+                { 
+                  label: 'Global Accuracy', 
+                  value: `${Math.round(savedLibrary.reduce((acc, curr) => acc + (curr.lastQuizScore ? (curr.lastQuizScore.score / curr.lastQuizScore.total) * 100 : 0), 0) / (savedLibrary.filter(i => i.lastQuizScore).length || 1))}%`,
+                  icon: Target, 
+                  color: 'text-indigo-600', 
+                  bg: 'bg-indigo-50' 
+                },
+                { 
+                  label: 'Total Sessions', 
+                  value: savedLibrary.length, 
+                  icon: BookOpen, 
+                  color: 'text-emerald-600', 
+                  bg: 'bg-emerald-50' 
+                },
+                { 
+                  label: 'Study Time', 
+                  value: (() => {
+                    const totalSecs = savedLibrary.reduce((acc, curr) => acc + curr.totalStudiedSeconds, 0);
+                    const hours = Math.floor(totalSecs / 3600);
+                    const mins = Math.floor((totalSecs % 3600) / 60);
+                    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+                  })(), 
+                  icon: Clock, 
+                  color: 'text-blue-600', 
+                  bg: 'bg-blue-50' 
+                },
+                { 
+                  label: 'Library Mastery', 
+                  value: `${Math.round((savedLibrary.filter(i => i.isCompleted).length / (savedLibrary.length || 1)) * 100)}%`, 
+                  icon: BarChart3, 
+                  color: 'text-orange-600', 
+                  bg: 'bg-orange-50' 
+                }
+              ].map((stat, i) => (
+                <div key={i} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm relative group overflow-hidden">
+                  <div className={`absolute top-0 right-0 w-24 h-24 ${stat.bg} rounded-full blur-3xl opacity-0 group-hover:opacity-60 transition-opacity`} />
+                  <div className="relative z-10 flex flex-col items-center text-center">
+                    <div className={`mb-4 p-4 rounded-2xl ${stat.bg} ${stat.color}`}>
+                      <stat.icon className="w-6 h-6" />
+                    </div>
+                    <h4 className="text-3xl font-black text-slate-800 tracking-tighter mb-1">{stat.value}</h4>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{stat.label}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-white rounded-[3rem] border border-slate-100 shadow-xl p-8 md:p-12 mb-12">
+              <h3 className="text-xl font-bold text-slate-800 mb-8 flex items-center gap-3">
+                <Target className="w-5 h-5 text-rose-500" />
+                Areas for Improvement
+              </h3>
+              {savedLibrary.filter(item => item.lastQuizScore && (item.lastQuizScore.score / item.lastQuizScore.total) < 0.7).length > 0 ? (
+                <div className="space-y-4">
+                  {savedLibrary.filter(item => item.lastQuizScore && (item.lastQuizScore.score / item.lastQuizScore.total) < 0.7).map(item => (
+                    <div key={item.id} className="flex items-center justify-between p-6 bg-rose-50 rounded-2xl border border-rose-100">
+                      <div>
+                        <h4 className="font-bold text-slate-800 uppercase tracking-tight">{item.notes.title}</h4>
+                        <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest mt-1">
+                          Score: {item.lastQuizScore?.score}/{item.lastQuizScore?.total} — Focus on this topic
+                        </p>
+                      </div>
+                      <button 
+                        onClick={() => loadFromLibrary(item)}
+                        className="px-4 py-2 bg-white text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-widest border border-rose-200 hover:bg-rose-100 transition-all font-bold"
+                      >
+                        Re-Study
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-10 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-3" />
+                  <p className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">You're doing great! No weak areas identified yet.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-[3rem] border border-slate-100 shadow-xl p-8 md:p-12">
+              <h3 className="text-xl font-bold text-slate-800 mb-8 flex items-center gap-3">
+                <Layers className="w-5 h-5 text-indigo-600" />
+                Topic Performance Archive
+              </h3>
+              <div className="grid grid-cols-1 gap-4">
+                {savedLibrary.map((item) => (
+                  <div key={item.id} className="group p-6 rounded-3xl border border-slate-100 hover:border-indigo-100 hover:bg-slate-50 transition-all flex flex-col md:flex-row md:items-center justify-between gap-6">
+                    <div className="flex items-center gap-5">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${item.isCompleted ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                        {item.isCompleted ? <CheckCircle2 className="w-6 h-6" /> : <BookOpen className="w-6 h-6" />}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors uppercase tracking-tight">{item.notes.title}</h4>
+                        <div className="flex items-center gap-4 mt-1">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                            <Clock className="w-3 h-3" /> {item.date}
+                          </span>
+                          <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-1">
+                            <Timer className="w-3 h-3" /> {Math.floor(item.totalStudiedSeconds / 60)}m
+                          </span>
+                          <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Class {item.grade}</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-8">
+                      {item.lastQuizScore ? (
+                        <div className="text-right">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Last Quiz</p>
+                          <p className={`text-sm font-bold ${item.lastQuizScore.score / item.lastQuizScore.total >= 0.8 ? 'text-emerald-600' : 'text-slate-600'}`}>
+                            {item.lastQuizScore.score}/{item.lastQuizScore.total} Correct
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="bg-slate-50 px-3 py-1 rounded-lg">
+                          <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">No Quiz Done</p>
+                        </div>
+                      )}
+                      
+                      <button 
+                        onClick={() => toggleCompletion(item.id)}
+                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                          item.isCompleted 
+                            ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' 
+                            : 'bg-white text-slate-400 border border-slate-200 hover:border-indigo-200 hover:text-indigo-600'
+                        }`}
+                      >
+                        {item.isCompleted ? 'Mastered ✓' : 'Mark Done'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </motion.div>
         ) : loading ? (
           <motion.div 
@@ -418,11 +744,44 @@ export default function App() {
                 </button>
                 <div className="h-4 w-px bg-slate-200" />
                 <button
+                  onClick={toggleTimer}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold uppercase text-[10px] tracking-widest transition-all ${
+                    isTimerRunning
+                      ? 'bg-amber-50 text-amber-600 border border-amber-100'
+                      : 'bg-slate-50 text-slate-500 border border-slate-100 hover:bg-white'
+                  }`}
+                >
+                  {isTimerRunning ? <Pause className="w-3 h-3" /> : <Timer className="w-3 h-3" />}
+                  {isTimerRunning ? 'Stop Timer' : 'Start Study Timer'}
+                  {timerSeconds > 0 && (
+                    <span className="ml-1 opacity-60">
+                      ({Math.floor(timerSeconds / 60)}:{(timerSeconds % 60).toString().padStart(2, '0')})
+                    </span>
+                  )}
+                </button>
+                <div className="h-4 w-px bg-slate-200" />
+                <button
                   onClick={startQuiz}
                   className="flex items-center gap-2 px-4 py-2 rounded-full font-bold uppercase text-[10px] tracking-widest bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100 transition-all"
                 >
                   <FileQuestion className="w-3 h-3" />
                   Test Knowledge
+                </button>
+                <div className="h-4 w-px bg-slate-200" />
+                <button
+                  onClick={() => {
+                    const libItem = savedLibrary.find(i => i.notes.title === notes.title);
+                    if (libItem) toggleCompletion(libItem.id);
+                    else saveToLibrary();
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold uppercase text-[10px] tracking-widest transition-all ${
+                    savedLibrary.some(item => item.notes.title === notes.title && item.isCompleted)
+                      ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                      : 'bg-slate-50 text-slate-500 border border-slate-100 hover:bg-white'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3 h-3" />
+                  {savedLibrary.some(item => item.notes.title === notes.title && item.isCompleted) ? 'Mastered' : 'Mark Done'}
                 </button>
               </div>
               <div className="flex items-center gap-3">
@@ -473,33 +832,57 @@ export default function App() {
                 </div>
               </header>
 
-              <div className="p-8 md:p-12 lg:p-16 flex-1">
+              <div className="p-8 md:p-12 lg:p-16 flex-1 bg-slate-50/50">
                 {diagramUrl && (
                   <div className="mb-12">
                     <button 
                       onClick={() => setIsDiagramModalOpen(true)}
-                      className="w-full text-left rounded-2xl overflow-hidden bg-slate-50 border border-slate-200 group p-6 cursor-zoom-in relative"
+                      className="w-full text-left rounded-[2.5rem] overflow-hidden bg-white border border-slate-200 group p-2 cursor-zoom-in relative shadow-sm"
                     >
-                      <div className="relative aspect-video flex items-center justify-center bg-white rounded-xl shadow-inner overflow-hidden border border-slate-100">
+                      <div className="relative aspect-video flex items-center justify-center bg-slate-50 rounded-[2rem] overflow-hidden border border-slate-100">
                         <img 
                           src={diagramUrl ?? undefined} 
                           alt="Scientific Diagram" 
                           className="max-h-full object-contain mix-blend-multiply group-hover:scale-[1.02] transition-transform duration-700"
                           referrerPolicy="no-referrer"
                         />
-                        <div className="absolute top-4 right-4 bg-white/80 backdrop-blur p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                          <ImageIcon className="w-4 h-4 text-slate-600" />
+                        <div className="absolute inset-0 bg-indigo-600/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <div className="absolute bottom-6 right-6 bg-white/90 backdrop-blur px-4 py-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-sm flex items-center gap-2">
+                          <ImageIcon className="w-4 h-4 text-indigo-600" />
+                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">View Full Detail</span>
                         </div>
                       </div>
-                      <p className="text-center text-[10px] text-slate-400 mt-4 font-bold uppercase tracking-[0.3em] italic">
-                        Click to enlarge Illustration
+                      <p className="text-center text-[10px] text-slate-400 my-4 font-bold uppercase tracking-[0.3em] italic">
+                        Conceptual Illustration: {notes.title}
                       </p>
                     </button>
                   </div>
                 )}
 
-                <div className="prose prose-slate max-w-none prose-headings:text-slate-800 prose-p:text-slate-600">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{notes.content}</ReactMarkdown>
+                <div className="space-y-8">
+                  {notes.content.split(/(?=## )/).filter(Boolean).map((section, idx) => (
+                    <motion.section
+                      key={idx}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.05 }}
+                      className="bg-white p-8 md:p-10 rounded-[3rem] border border-slate-200 shadow-sm hover:shadow-md transition-shadow"
+                    >
+                      <div className="prose prose-slate max-w-none 
+                        prose-headings:text-slate-800 prose-headings:tracking-tight
+                        prose-h2:text-2xl prose-h2:font-black prose-h2:mb-6 prose-h2:pb-3 prose-h2:border-b-2 prose-h2:border-indigo-50
+                        prose-p:text-slate-600 prose-p:leading-relaxed prose-p:mb-6
+                        prose-li:text-slate-600 prose-li:mb-2
+                        prose-strong:text-indigo-600 prose-strong:font-bold
+                        prose-blockquote:border-l-4 prose-blockquote:border-indigo-500 prose-blockquote:bg-indigo-50 prose-blockquote:py-2 prose-blockquote:px-6 prose-blockquote:rounded-r-2xl prose-blockquote:italic prose-blockquote:text-slate-700
+                        prose-table:border prose-table:border-slate-200 prose-table:rounded-xl prose-table:overflow-hidden
+                        prose-th:bg-slate-50 prose-th:p-4 prose-th:text-xs prose-th:font-black prose-th:uppercase prose-th:tracking-widest
+                        prose-td:p-4 prose-td:text-sm prose-td:border-t prose-td:border-slate-100"
+                      >
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{section}</ReactMarkdown>
+                      </div>
+                    </motion.section>
+                  ))}
                 </div>
               </div>
 
@@ -523,6 +906,94 @@ export default function App() {
                   <p className="text-[8px] text-indigo-400 font-bold uppercase tracking-tighter mt-0.5">CEO & Founder, Kishan Suraksha AI</p>
                 </div>
               </footer>
+
+              {/* Feedback Section */}
+              <div className="bg-slate-50 border-t border-slate-100 p-8 md:p-12 no-print">
+                <div className="max-w-2xl mx-auto">
+                  <AnimatePresence mode="wait">
+                    {!isFeedbackSubmitted ? (
+                      <motion.div
+                        key="feedback-form"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                      >
+                        <div className="flex items-center gap-3 mb-6">
+                          <div className="bg-indigo-100 p-2 rounded-xl">
+                            <MessageSquare className="w-5 h-5 text-indigo-600" />
+                          </div>
+                          <div>
+                            <h4 className="text-lg font-bold text-slate-800 tracking-tight">Help improve these notes</h4>
+                            <p className="text-xs text-slate-500 font-medium italic">Your feedback trains our AI to be a better study companion.</p>
+                          </div>
+                        </div>
+
+                        <form onSubmit={handleFeedbackSubmit} className="space-y-6">
+                          <div className="flex flex-col gap-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Rate the accuracy & clarity</p>
+                            <div className="flex gap-2">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <button
+                                  key={star}
+                                  type="button"
+                                  onMouseEnter={() => !feedbackRating && setFeedbackRating(star)}
+                                  onMouseLeave={() => !feedbackRating && setFeedbackRating(0)}
+                                  onClick={() => setFeedbackRating(star)}
+                                  className="transition-transform hover:scale-110"
+                                >
+                                  <Star 
+                                    className={`w-8 h-8 ${
+                                      (feedbackRating || 0) >= star 
+                                        ? 'fill-amber-400 text-amber-400' 
+                                        : 'text-slate-200'
+                                    }`} 
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Optional Comments</p>
+                            <textarea
+                              value={feedbackComment}
+                              onChange={(e) => setFeedbackComment(e.target.value)}
+                              placeholder="What could be better? (e.g., more diagrams needed, explain X more simply...)"
+                              className="w-full p-4 rounded-2xl border-2 border-slate-200 focus:border-indigo-500 outline-none transition-all resize-none h-32 text-sm text-slate-600"
+                            />
+                          </div>
+
+                          <button
+                            type="submit"
+                            disabled={feedbackRating === 0 || isSubmittingFeedback}
+                            className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-bold uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:grayscale"
+                          >
+                            {isSubmittingFeedback ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Send className="w-4 h-4" />
+                            )}
+                            {isSubmittingFeedback ? 'Submitting...' : 'Send Feedback'}
+                          </button>
+                        </form>
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="feedback-success"
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="text-center py-6"
+                      >
+                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 mb-4">
+                          <CheckCircle2 className="w-8 h-8" />
+                        </div>
+                        <h4 className="text-xl font-bold text-slate-800 mb-1 tracking-tight">Feedback Received!</h4>
+                        <p className="text-sm text-slate-500 italic">Thank you for helping us build better tools for students.</p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
             </article>
 
             {/* Diagram Lightbox */}

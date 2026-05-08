@@ -53,8 +53,9 @@ export async function generateNotes(topic: string, grade: string, style: NoteSty
   });
 
   const text = response.text || "{}";
+  const cleanedText = robustExtractJSON(text);
   try {
-    return JSON.parse(text) as TopperNotes;
+    return JSON.parse(cleanedText) as TopperNotes;
   } catch (e) {
     console.error("Failed to parse AI response", text);
     throw new Error("Failed to generate structured notes.");
@@ -145,10 +146,44 @@ export async function generateQuiz(notes: string, grade: string): Promise<QuizQu
   });
 
   const text = response.text || "[]";
+  const cleanedText = robustExtractJSON(text);
   try {
-    return JSON.parse(text) as QuizQuestion[];
+    return JSON.parse(cleanedText) as QuizQuestion[];
   } catch (e) {
     console.error("Failed to parse quiz response", text);
     throw new Error("Failed to generate quiz questions.");
   }
+}
+
+/**
+ * Robustly extracts the JSON part of a string, handling markdown and trailing noise.
+ */
+function robustExtractJSON(text: string): string {
+  let cleaned = text.trim();
+  
+  // 1. Remove markdown code block wrappers
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```[a-z]*\n/i, '');
+    cleaned = cleaned.replace(/\n```$/m, '');
+  }
+
+  // 2. Find the first '{' or '[' and the last '}' or ']'
+  const firstBrace = cleaned.indexOf('{');
+  const firstBracket = cleaned.indexOf('[');
+  const lastBrace = cleaned.lastIndexOf('}');
+  const lastBracket = cleaned.lastIndexOf(']');
+
+  const start = (firstBrace !== -1 && firstBracket !== -1) 
+    ? Math.min(firstBrace, firstBracket) 
+    : (firstBrace !== -1 ? firstBrace : firstBracket);
+    
+  const end = (lastBrace !== -1 && lastBracket !== -1) 
+    ? Math.max(lastBrace, lastBracket) 
+    : (lastBrace !== -1 ? lastBrace : lastBracket);
+
+  if (start !== -1 && end !== -1 && end > start) {
+    return cleaned.substring(start, end + 1);
+  }
+
+  return cleaned;
 }
