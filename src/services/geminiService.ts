@@ -2,12 +2,14 @@ import { GoogleGenAI, Modality } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
-export type NoteStyle = 'balanced' | 'formulas' | 'visual' | 'simple';
+export type NoteStyle = 'balanced' | 'formulas' | 'visual' | 'simple' | 'concise' | 'detailed';
 
 export interface TopperNotes {
   title: string;
   content: string; // Markdown
   imagePrompt: string;
+  glossary?: { term: string; definition: string }[];
+  derivations?: { formula: string; explanation: string }[];
 }
 
 export async function generateNotes(topic: string, grade: string, style: NoteStyle = 'balanced'): Promise<TopperNotes> {
@@ -17,7 +19,9 @@ export async function generateNotes(topic: string, grade: string, style: NoteSty
     balanced: "Provide a perfect balance of explanations, examples, and formulas.",
     formulas: "Focus heavily on formulas, mathematical derivations, definitions, and important facts. Use tables where possible.",
     visual: "Focus on creating highly descriptive content that is easy to visualize. Keep paragraphs extremely short and focus on structural breakdowns.",
-    simple: "Use very simple language, analogies, and easy-to-understand examples. Avoid overly complex jargon unless necessary for the exam."
+    simple: "Use very simple language, analogies, and easy-to-understand examples. Avoid overly complex jargon unless necessary for the exam.",
+    concise: "Short, snappy, and to-the-point. Best for last-minute revision. Use lots of bullet points.",
+    detailed: "In-depth explanations with deep dives into why things happen. Comprehensive coverage of all sub-topics."
   };
 
   const systemInstruction = `
@@ -31,16 +35,21 @@ export async function generateNotes(topic: string, grade: string, style: NoteSty
     2. Short and Smart Explanations (Bullet points, concise sentences).
     3. Important Formulas or Facts (Highlight these using bold or blockquotes).
     4. Easy Examples (Real-world or simple scenarios).
-    5. Tables: Use markdown tables for comparisons or listing differences (very common in school exams).
-    6. Quick Revision Points at the end (Summary list).
+    5. Tables: Use markdown tables for comparisons or listing differences.
+    
+    IMPORTANT for Interactivity:
+    - Any key term you define in the 'glossary' should be formatted as **Term** in the markdown 'content'.
+    - Any formula you explain in 'derivations' should be formatted as \`Formula\` (inline code) in the 'content'.
     
     Format: Return the output as a valid JSON object with the following keys:
     - title: The topic title.
     - content: The full notes in high-quality Markdown.
-    - imagePrompt: A detailed prompt for gemini-2.5-flash-image to generate a helpful diagram or scientific illustration for this topic. Be specific about labels and details.
+    - imagePrompt: A detailed prompt for gemini-2.5-flash-image to generate a diagram.
+    - glossary: (Optional) An array of { term, definition } for key jargon used in the content.
+    - derivations: (Optional) An array of { formula, explanation } specifically for complex formulas mentioned in the content.
     
     Voice: Professional, encouraging, and clear. 
-    Focus on school curriculum (Math, Science, Social Science) for Class ${grade}.
+    Focus on school curriculum for Class ${grade}.
   `;
 
   const response = await ai.models.generateContent({

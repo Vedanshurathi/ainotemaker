@@ -29,6 +29,7 @@ export default function App() {
   const [isQuizFinished, setIsQuizFinished] = useState(false);
 
   const [isDiagramModalOpen, setIsDiagramModalOpen] = useState(false);
+  const [activeInteractive, setActiveInteractive] = useState<{ type: 'glossary' | 'derivation', title: string, content: string } | null>(null);
 
   // Timer State
   const [timerSeconds, setTimerSeconds] = useState(0);
@@ -285,9 +286,11 @@ export default function App() {
 
   const styles: { id: NoteStyle, label: string, icon: any, desc: string }[] = [
     { id: 'balanced', label: 'Balanced', icon: Layers, desc: 'Mixed theory & facts' },
-    { id: 'formulas', label: 'Formulas', icon: Zap, desc: 'Exam math focus' },
-    { id: 'visual', label: 'Visual', icon: ImageIcon, desc: 'Concept diagrams' },
-    { id: 'simple', label: 'Simple', icon: BookOpen, desc: 'Easy analogies' },
+    { id: 'concise', label: 'Concise Summary', icon: Target, desc: 'Quick points' },
+    { id: 'detailed', label: 'Detailed Explanation', icon: Sparkles, desc: 'Deep dive topics' },
+    { id: 'visual', label: 'Visual Learner', icon: ImageIcon, desc: 'Highly visual' },
+    { id: 'formulas', label: 'Formula Focus', icon: Zap, desc: 'Math & Derivations' },
+    { id: 'simple', label: 'Simple Language', icon: BookOpen, desc: 'Easy analogies' },
   ];
 
   const handleReset = () => {
@@ -879,7 +882,43 @@ export default function App() {
                         prose-th:bg-slate-50 prose-th:p-4 prose-th:text-xs prose-th:font-black prose-th:uppercase prose-th:tracking-widest
                         prose-td:p-4 prose-td:text-sm prose-td:border-t prose-td:border-slate-100"
                       >
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{section}</ReactMarkdown>
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            strong: ({ children }) => {
+                              const term = String(children);
+                              const glossaryItem = notes?.glossary?.find(g => g.term.toLowerCase() === term.toLowerCase());
+                              if (glossaryItem) {
+                                return (
+                                  <button
+                                    onClick={() => setActiveInteractive({ type: 'glossary', title: glossaryItem.term, content: glossaryItem.definition })}
+                                    className="text-indigo-600 font-bold border-b-2 border-indigo-200 hover:border-indigo-600 hover:bg-indigo-50 transition-all px-0.5 rounded cursor-help"
+                                  >
+                                    {children}
+                                  </button>
+                                );
+                              }
+                              return <strong className="text-indigo-600 font-bold">{children}</strong>;
+                            },
+                            code: ({ children }) => {
+                              const formula = String(children);
+                              const derivation = notes?.derivations?.find(d => d.formula.toLowerCase() === formula.toLowerCase() || formula.toLowerCase().includes(d.formula.toLowerCase()));
+                              if (derivation) {
+                                return (
+                                  <button
+                                    onClick={() => setActiveInteractive({ type: 'derivation', title: derivation.formula, content: derivation.explanation })}
+                                    className="px-1.5 py-0.5 rounded bg-slate-100 text-indigo-700 font-mono text-[0.9em] border border-slate-200 hover:bg-indigo-50 hover:border-indigo-300 transition-all cursor-help"
+                                  >
+                                    {children}
+                                  </button>
+                                );
+                              }
+                              return <code className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 font-mono text-[0.9em]">{children}</code>;
+                            }
+                          }}
+                        >
+                          {section}
+                        </ReactMarkdown>
                       </div>
                     </motion.section>
                   ))}
@@ -1031,6 +1070,54 @@ export default function App() {
                       <h4 className="text-xl font-bold text-slate-800 tracking-tight">{notes.title}</h4>
                       <p className="text-xs text-indigo-600 font-black uppercase tracking-widest mt-1">Detailed Scientific Illustration</p>
                     </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Interactive Tooltips Popup */}
+            <AnimatePresence>
+              {activeInteractive && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setActiveInteractive(null)}
+                  className="fixed inset-0 z-[110] bg-indigo-950/60 backdrop-blur-sm flex items-center justify-center p-6 no-print"
+                >
+                  <motion.div
+                    initial={{ scale: 0.9, y: 20 }}
+                    animate={{ scale: 1, y: 0 }}
+                    exit={{ scale: 0.9, y: 20 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="max-w-md w-full bg-white rounded-[2rem] p-8 shadow-2xl border border-indigo-100 relative"
+                  >
+                    <div className="absolute -top-3 -left-3 bg-indigo-600 text-white p-2 rounded-xl shadow-lg">
+                      {activeInteractive.type === 'glossary' ? <BookOpen className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
+                    </div>
+                    <button 
+                      onClick={() => setActiveInteractive(null)}
+                      className="absolute top-4 right-4 text-slate-300 hover:text-rose-500 transition-colors"
+                    >
+                      <XCircle className="w-6 h-6" />
+                    </button>
+                    
+                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-4 pr-8">
+                      {activeInteractive.type === 'glossary' ? 'Definition' : 'Derivation Insight'}
+                    </h3>
+                    
+                    <div className="space-y-4">
+                      <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                        <code className="text-indigo-700 font-bold text-lg">{activeInteractive.title}</code>
+                      </div>
+                      <p className="text-slate-600 leading-relaxed font-medium italic">
+                        {activeInteractive.content}
+                      </p>
+                    </div>
+
+                    <p className="mt-8 text-[10px] font-bold text-slate-400 border-t border-slate-100 pt-4 uppercase tracking-[0.2em]">
+                      Interactive Topper Insight • {notes.title}
+                    </p>
                   </motion.div>
                 </motion.div>
               )}
