@@ -1,6 +1,11 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const apiKey = process.env.GEMINI_API_KEY || "";
+if (!apiKey && typeof window !== 'undefined') {
+  console.warn("GEMINI_API_KEY is not defined. AI features will not work.");
+}
+
+const ai = new GoogleGenAI({ apiKey });
 
 export type NoteStyle = 'balanced' | 'formulas' | 'visual' | 'simple' | 'concise' | 'detailed';
 
